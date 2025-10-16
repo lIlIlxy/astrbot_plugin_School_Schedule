@@ -16,7 +16,7 @@ from astrbot.api import logger
 @register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送到多个群", "1.8.0")
 class DailySchedulePlugin(Star):
     # 配置目标群号列表
-    TARGET_GROUPS = [123456789, 987654321]  # 替换为你的群号
+    TARGET_GROUPS = [875059212, 705502243,1030481229]  # 替换为你的群号
 
     def __init__(self, context: Context):
         super().__init__(context)
