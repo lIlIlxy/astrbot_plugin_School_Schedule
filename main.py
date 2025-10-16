@@ -6,6 +6,7 @@ AstrBot 插件：每日 7:30 自动运行 ics_parser.py，解析并发送今日�
 import os
 import sys
 import importlib.util
+import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -54,7 +55,10 @@ class DailySchedulePlugin(Star):
 
             # 执行解析函数
             if hasattr(module, "run_today_schedule"):
-                module.run_today_schedule()
+                result = module.run_today_schedule()
+                # 如果是协程则 await，否则同步函数直接返回
+                if asyncio.iscoroutine(result):
+                    await result
             else:
                 logger.error("[DailySchedule] ❌ 脚本中未定义 run_today_schedule() 函数。")
                 return
