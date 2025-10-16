@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 AstrBot 插件：每日 7:30 自动运行 ics_parser.py，解析并发送今日课表。
+兼容 AstrBot 新版 Context 对象（无 .config 属性）
 """
 
 import os
@@ -14,7 +15,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
 
-@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果", "1.2.0")
+@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果", "1.3.0")
 class DailySchedulePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -66,7 +67,7 @@ class DailySchedulePlugin(Star):
             if not os.path.exists(self.log_file):
                 open(self.log_file, "w", encoding="utf-8").close()
 
-            # 读取日志内容
+            # 读取今日日志内容
             today = datetime.now().strftime("%Y-%m-%d")
             today_lines = []
             with open(self.log_file, "r", encoding="utf-8") as f:
@@ -79,15 +80,21 @@ class DailySchedulePlugin(Star):
             else:
                 log_content = "☕ 今天没有课程，记得休息！"
 
-            # 发送私聊消息
+            # ========== ✅ 修复 Context.config 问题 ==========
             try:
-                root_qq = getattr(self.context.config, "root_qq", None)
+                bot = await self.context.get_bot()
+
+                # 优先从 bot.config 中读取 root_qq，否则使用 bot.qq
+                root_qq = getattr(bot.config, "root_qq", None)
+                if not root_qq:
+                    root_qq = getattr(bot, "qq", None)
+
                 if root_qq:
-                    bot = await self.context.get_bot()
                     await bot.send_private_message(root_qq, f"📚 今日课表更新：\n{log_content}")
-                    logger.info(f"[DailySchedule] ✅ 已将课表发送给 Root QQ：{root_qq}")
+                    logger.info(f"[DailySchedule] ✅ 已将课表发送给 QQ：{root_qq}")
                 else:
-                    logger.warning("[DailySchedule] ⚠️ 未配置 root_qq，无法自动发送。")
+                    logger.warning("[DailySchedule] ⚠️ 未找到 root_qq 或 bot.qq，无法发送课表。")
+
             except Exception as e:
                 logger.error(f"[DailySchedule] ❌ 发送课表消息失败：{e}")
 
