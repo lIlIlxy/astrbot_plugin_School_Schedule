@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 AstrBot 插件：每日 7:30 自动运行 ics_parser.py，解析并发送今日课表。
-兼容 AstrBot 新版 Context 对象（无 .config 属性）
 """
 
 import os
@@ -15,7 +14,7 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
 
-@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果", "1.3.0")
+@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果", "1.4.0")
 class DailySchedulePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -80,17 +79,19 @@ class DailySchedulePlugin(Star):
             else:
                 log_content = "☕ 今天没有课程，记得休息！"
 
-            # ========== ✅ 修复 Context.config 问题 ==========
+            # ✅ 直接通过 self.bot 发送消息（新版 API 推荐）
             try:
-                bot = await self.context.get_bot()
+                if self.bot is None:
+                    logger.error("[DailySchedule] ❌ bot 实例未初始化，无法发送课表。")
+                    return
 
-                # 优先从 bot.config 中读取 root_qq，否则使用 bot.qq
-                root_qq = getattr(bot.config, "root_qq", None)
+                # 优先从 bot.config 获取 root_qq，否则使用 bot.qq
+                root_qq = getattr(self.bot.config, "root_qq", None)
                 if not root_qq:
-                    root_qq = getattr(bot, "qq", None)
+                    root_qq = getattr(self.bot, "qq", None)
 
                 if root_qq:
-                    await bot.send_private_message(root_qq, f"📚 今日课表更新：\n{log_content}")
+                    await self.bot.send_private_message(root_qq, f"📚 今日课表更新：\n{log_content}")
                     logger.info(f"[DailySchedule] ✅ 已将课表发送给 QQ：{root_qq}")
                 else:
                     logger.warning("[DailySchedule] ⚠️ 未找到 root_qq 或 bot.qq，无法发送课表。")
