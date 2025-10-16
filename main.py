@@ -13,10 +13,9 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-
-@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果到指定群", "2.0.0")
+@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果到群", "2.0.0")
 class DailySchedulePlugin(Star):
-    # 支持多群发送
+    # 多群号列表
     TARGET_GROUPS = [875059212, 705502243, 1030481229]
 
     def __init__(self, context: Context):
@@ -45,7 +44,7 @@ class DailySchedulePlugin(Star):
         logger.info("✅ [DailySchedule] 已设置每日 7:30 自动运行课表解析脚本。")
 
     async def run_script(self) -> str:
-        """执行 ics_parser.py 的 run_today_schedule() 并返回结果文本"""
+        """执行 ics_parser.py 的 run_today_schedule() 并返回课程文本"""
         try:
             # 动态加载 ics_parser.py
             spec = importlib.util.spec_from_file_location("ics_parser", self.script_path)
@@ -55,51 +54,50 @@ class DailySchedulePlugin(Star):
 
             # 执行 run_today_schedule()
             if hasattr(module, "run_today_schedule"):
-                events = module.run_today_schedule()  # ics_parser.py 返回课程信息列表
+                result = module.run_today_schedule()
+                if asyncio.iscoroutine(result):
+                    result = await result
             else:
                 return "❌ 错误：ics_parser.py 中未定义 run_today_schedule() 函数。"
 
-            if not events:
-                return "☕ 今天没有课程，记得休息！"
-
-            # 构造输出文本
-            lines = ["📚 今日课表更新："]
-            for e in events:
-                start = e['开始时间'].strftime("%H:%M")
-                end = e['结束时间'].strftime("%H:%M")
-                course = e['课程']
-                location = e['地点']
-                remark = e.get('备注', '')
-                line = f"{start} ~ {end} | {course} | {location}"
-                if remark:
-                    line += f" | 备注: {remark}"
-                lines.append(line)
-            return "\n".join(lines)
+            # 直接返回结果字符串
+            return result if result else "☕ 今天没有课程，记得休息！"
 
         except Exception as e:
             logger.error(f"[DailySchedule] 课表脚本错误：{e}")
             return f"❌ 执行课表脚本出错：{e}"
 
-    async def auto_task(self):
-        """每天 7:30 自动执行任务并发送到指定群"""
-        result_text = await self.run_script()
+    async def send_to_groups(self, text: str):
+        """将课程信息发送到指定群"""
         try:
+            bot = getattr(self, "bot", None)
+            if not bot:
+                # 新版本 AstrBot 获取 bot 对象
+                bot = await self.context.get_star_bot()
+        except Exception:
+            bot = None
+
+        if bot:
             for group_id in self.TARGET_GROUPS:
-                await self.bot.send_group_message(group_id, result_text)
-                logger.info(f"[DailySchedule] ✅ 已发送今日课表到群 {group_id}")
-        except Exception as e:
-            logger.error(f"[DailySchedule] ❌ 发送群消息失败：{e}")
+                try:
+                    await bot.send_group_message(group_id, text)
+                except Exception as e:
+                    logger.error(f"[DailySchedule] ❌ 发送到群 {group_id} 失败：{e}")
+        else:
+            logger.error("[DailySchedule] ❌ 未获取到 Bot 对象，无法发送群消息")
+
+    async def auto_task(self):
+        """每天 7:30 自动执行任务"""
+        result_text = await self.run_script()
+        logger.info(f"[DailySchedule] 自动执行结果：\n{result_text}")
+        await self.send_to_groups(result_text)
 
     @filter.command("run_schedule_now")
     async def run_now(self, event: AstrMessageEvent):
-        """手动立即执行任务并发送到指定群"""
+        """手动立即执行课表任务"""
         result_text = await self.run_script()
-        try:
-            for group_id in self.TARGET_GROUPS:
-                await self.bot.send_group_message(group_id, result_text)
-        except Exception as e:
-            logger.error(f"[DailySchedule] ❌ 手动发送群消息失败：{e}")
-        # 将手动执行提示与课表内容一同发送
+        await self.send_to_groups(result_text)
+        # ✅ 将手动提示与课程信息一同发送
         yield event.plain_result(f"✅ 已手动执行课表解析，并发送到群 {self.TARGET_GROUPS}。\n\n{result_text}")
 
     async def terminate(self):
