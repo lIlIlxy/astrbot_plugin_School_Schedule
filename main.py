@@ -7,30 +7,30 @@ import os
 import sys
 import importlib.util
 import asyncio
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
 
-@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果", "1.1.0")
+@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果", "1.2.0")
 class DailySchedulePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.scheduler = AsyncIOScheduler()
-        self.job = None
+        self.script_path = os.path.join(os.path.dirname(__file__), "ics_parser.py")
+        self.log_file = os.path.join(os.path.dirname(self.script_path), "schedule.log")
 
     async def initialize(self):
         """插件初始化时自动调用"""
         logger.info("[DailySchedule] 初始化中...")
 
-        # 获取脚本路径
-        self.script_path = os.path.join(os.path.dirname(__file__), "ics_parser.py")
         if not os.path.exists(self.script_path):
             logger.error(f"[DailySchedule] ❌ 未找到课表脚本文件：{self.script_path}")
             return
 
-        # 启动定时任务
+        # 定时任务：每天早上 7:30 执行
         self.scheduler.add_job(
             self.run_script,
             "cron",
@@ -56,28 +56,32 @@ class DailySchedulePlugin(Star):
             # 执行解析函数
             if hasattr(module, "run_today_schedule"):
                 result = module.run_today_schedule()
-                # 如果是协程则 await，否则同步函数直接返回
                 if asyncio.iscoroutine(result):
                     await result
             else:
                 logger.error("[DailySchedule] ❌ 脚本中未定义 run_today_schedule() 函数。")
                 return
 
+            # 如果日志不存在则创建空文件
+            if not os.path.exists(self.log_file):
+                open(self.log_file, "w", encoding="utf-8").close()
+
             # 读取日志内容
-            log_file = os.path.join(os.path.dirname(self.script_path), "schedule.log")
-            if not os.path.exists(log_file):
-                logger.warning("[DailySchedule] ⚠️ 未找到日志文件 schedule.log。")
-                return
+            today = datetime.now().strftime("%Y-%m-%d")
+            today_lines = []
+            with open(self.log_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if today in line:
+                        today_lines.append(line)
 
-            with open(log_file, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-                # 只取当天的日志片段
-                today_lines = lines[-20:] if len(lines) > 20 else lines
+            if today_lines:
                 log_content = "".join(today_lines).strip()
+            else:
+                log_content = "☕ 今天没有课程，记得休息！"
 
-            # 自动私聊发送给 Bot 主人（Root QQ）
+            # 发送私聊消息
             try:
-                root_qq = self.context.config.root_qq if hasattr(self.context.config, "root_qq") else None
+                root_qq = getattr(self.context.config, "root_qq", None)
                 if root_qq:
                     bot = await self.context.get_bot()
                     await bot.send_private_message(root_qq, f"📚 今日课表更新：\n{log_content}")
