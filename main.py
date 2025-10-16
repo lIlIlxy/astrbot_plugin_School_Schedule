@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 AstrBot 插件：每日 7:30 自动运行 ics_parser.py，解析并发送今日课表到指定群。
-兼容当前 AstrBot 版本，避免 'Context' 对象无 get_star_bot 方法的问题。
+兼容当前 AstrBot 版本，延迟获取 Bot 对象，避免初始化时报错。
 """
 
 import os
@@ -13,7 +13,7 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 
-@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果到群", "2.0.2")
+@register("astrbot_plugin_school_schedule", "LitRainLee", "每天7:30自动解析课表并发送结果到群", "2.0.3")
 class DailySchedulePlugin(Star):
     # 多群号列表
     TARGET_GROUPS = [875059212, 705502243, 1030481229]
@@ -22,7 +22,7 @@ class DailySchedulePlugin(Star):
         super().__init__(context)
         self.scheduler = AsyncIOScheduler()
         self.script_path = os.path.join(os.path.dirname(__file__), "ics_parser.py")
-        self.bot = None  # 初始化 bot 对象
+        self.bot = None  # 延迟获取
 
     async def initialize(self):
         """插件初始化时自动调用"""
@@ -32,12 +32,8 @@ class DailySchedulePlugin(Star):
             logger.error(f"[DailySchedule] ❌ 未找到课表脚本文件：{self.script_path}")
             return
 
-        # 获取 Bot 对象（兼容当前 AstrBot 版本）
-        self.bot = getattr(self.context, "bot", None)
-        if not self.bot:
-            logger.error("[DailySchedule] ❌ 未获取到 Bot 对象")
-        else:
-            logger.info("[DailySchedule] ✅ Bot 对象获取成功")
+        # 初始化不获取 Bot，对象延迟到发送消息时再获取
+        logger.info("[DailySchedule] ✅ 插件初始化完成，Bot 对象将在发送消息时获取。")
 
         # 设置定时任务：每天 7:30 执行
         self.scheduler.add_job(
@@ -76,9 +72,12 @@ class DailySchedulePlugin(Star):
 
     async def send_to_groups(self, text: str):
         """将课程信息发送到指定群"""
+        # 延迟获取 Bot 对象
         if not self.bot:
-            logger.error("[DailySchedule] ❌ 未获取到 Bot 对象，无法发送群消息")
-            return
+            self.bot = getattr(self.context, "bot", None)
+            if not self.bot:
+                logger.error("[DailySchedule] ❌ 未获取到 Bot 对象，无法发送群消息")
+                return
 
         for group_id in self.TARGET_GROUPS:
             try:
