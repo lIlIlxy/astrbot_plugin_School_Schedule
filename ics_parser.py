@@ -1,29 +1,20 @@
 # -*- coding: utf-8 -*-
 """
 课表解析脚本：解析 .ics 文件，生成今日课程信息。
-输出格式化后的文本并写入 schedule.log。
+仅输出课程信息，不输出日志。
 """
 
 import os
-import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from icalendar import Calendar
 import recurring_ical_events
 
 # ========== 配置 ==========
-ICS_FILE = os.path.join(os.path.dirname(__file__), "schedule.ics")
-LOG_FILE = os.path.join(os.path.dirname(__file__), "schedule.log")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ICS_FILE = os.path.join(BASE_DIR, "schedule.ics")
 
-# ========== 日志配置 ==========
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.FileHandler(LOG_FILE, encoding="utf-8"), logging.StreamHandler()]
-)
-
-
+# ====== 节次映射 ======
 def get_section_range(start_time_str: str) -> str:
-    """根据课程开始时间判断节次"""
     mapping = {
         "08:00": "1 - 2",
         "10:05": "3 - 4",
@@ -33,12 +24,11 @@ def get_section_range(start_time_str: str) -> str:
     }
     return mapping.get(start_time_str, "?")
 
-
-def run_today_schedule():
-    """解析今日课程并输出结果"""
+# ====== 主函数 ======
+def run_today_schedule() -> str:
+    """解析今日课程，返回格式化文本"""
     if not os.path.exists(ICS_FILE):
-        logging.error(f"❌ 未找到课表文件：{ICS_FILE}")
-        return "❌ 未找到课表文件，请确认文件路径。"
+        return "❌ 未找到课表文件，请确认路径。"
 
     with open(ICS_FILE, "r", encoding="utf-8") as f:
         cal = Calendar.from_ical(f.read())
@@ -47,7 +37,6 @@ def run_today_schedule():
     today_start = datetime.combine(today, datetime.min.time())
     today_end = datetime.combine(today, datetime.max.time())
 
-    # 解析当天课程（包括重复事件）
     events_today = recurring_ical_events.of(cal).between(today_start, today_end)
     courses = []
 
@@ -67,31 +56,25 @@ def run_today_schedule():
             "teacher": teacher,
         })
 
-    # ====== 生成输出文本 ======
     if not courses:
-        output_text = f"☕ 今天（{today.strftime('%Y-%m-%d')}）没有课程，放松一下吧！"
-    else:
-        header = f"📚 今日课表（{today.strftime('%Y-%m-%d')}）\n" + "─" * 22
-        lines = []
-        for c in courses:
-            lines.append(
-                f"🕗 {c['start']} ~ {c['end']}\n"
-                f"📘 {c['name']}\n"
-                f"🏫 {c['location']}\n"
-                f"👨‍🏫 {c['teacher']}\n"
-                f"💬 第{get_section_range(c['start'])}节\n"
-            )
-        footer = f"📊 今日共有 {len(courses)} 门课程 ✅"
-        output_text = "\n\n".join([header, "\n".join(lines), footer])
+        return f"☕ 今天（{today.strftime('%Y-%m-%d')}）没有课程，放松一下吧！"
 
-    # ====== 写入日志文件 ======
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(output_text + "\n\n")
+    # 生成输出文本
+    header = f"📚 今日课表（{today.strftime('%Y-%m-%d')}）\n" + "─" * 22
+    lines = []
+    for c in courses:
+        lines.append(
+            f"🕗 {c['start']} ~ {c['end']}\n"
+            f"📘 {c['name']}\n"
+            f"🏫 {c['location']}\n"
+            f"👨‍🏫 {c['teacher']}\n"
+            f"💬 第{get_section_range(c['start'])}节\n"
+        )
+    footer = f"📊 今日共有 {len(courses)} 门课程 ✅"
 
-    logging.info("✅ 今日课程解析完成并写入日志。")
-    print(output_text)
+    output_text = "\n\n".join([header, "\n".join(lines), footer])
     return output_text
 
-
+# ====== 独立运行 ======
 if __name__ == "__main__":
-    run_today_schedule()
+    print(run_today_schedule())
