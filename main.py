@@ -86,8 +86,9 @@ class DailySchedulePlugin(Star):
             # 4️⃣ 多群推送
             for group_id in self.target_group_ids:
                 try:
-                    await self.context.bot.send_group_message(group_id, output)
-                    await self.context.bot.send_group_image(group_id, img_path)
+                    await self.send_group_message(group_id, content)
+                    await self.send_group_image(group_id, img_path)
+
                     logger.info(f"[DailySchedule] ✅ 已发送课表图片至群 {group_id}")
                 except Exception as e:
                     logger.error(f"[DailySchedule] ❌ 群 {group_id} 发送失败: {e}")
