@@ -14,7 +14,7 @@ class DailySchedulePlugin(Star):
         super().__init__(context)
         self.scheduler = AsyncIOScheduler()
         # ✅ 支持多群推送
-        self.target_group_ids = [875059212, 123456789, 987654321]  # ← 修改为你的群号列表
+        self.target_group_ids = [875059212, 705502243, 1030481229]  # ← 修改为你的群号列表
         self.image_generator = ImageGenerator()
 
     async def initialize(self):
