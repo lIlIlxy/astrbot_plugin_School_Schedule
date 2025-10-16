@@ -96,37 +96,37 @@ class DailySchedulePlugin(Star):
             logger.error(f"[DailySchedule] 执行任务时出错: {e}")
 
     @filter.command("scheduletest", description="手动触发课表推送并输出全日志")
-async def test_command(self, event: AstrMessageEvent):
-    from io import StringIO
-    import logging
+    async def test_command(self, event: AstrMessageEvent):
+        from io import StringIO
+        import logging
 
-    # 创建临时日志捕获器
-    log_stream = StringIO()
-    stream_handler = logging.StreamHandler(log_stream)
-    stream_handler.setLevel(logging.INFO)
-    logger.addHandler(stream_handler)
+        # 创建临时日志捕获器
+        log_stream = StringIO()
+        stream_handler = logging.StreamHandler(log_stream)
+        stream_handler.setLevel(logging.INFO)
+        logger.addHandler(stream_handler)
 
-    try:
-        await self.send_daily_schedule()
-    finally:
-        # 移除临时日志处理器
-        logger.removeHandler(stream_handler)
+        try:
+            await self.send_daily_schedule()
+        finally:
+            # 移除临时日志处理器
+            logger.removeHandler(stream_handler)
 
-    # 获取日志内容
-    log_stream.seek(0)
-    log_content = log_stream.read().strip()
+        # 获取日志内容
+        log_stream.seek(0)
+        log_content = log_stream.read().strip()
 
-    # 如果日志太长，可以截断或分批发送
-    if len(log_content) > 4000:
-        # 分批发送，每条不超过 4000 字符（OneBot 限制）
-        for i in range(0, len(log_content), 4000):
-            await self.context.bot.send_private_message(event.get_sender_id(), log_content[i:i+4000])
-    else:
-        # 直接发送给用户
-        await self.context.bot.send_private_message(event.get_sender_id(), log_content)
+        # 如果日志太长，可以截断或分批发送
+        if len(log_content) > 4000:
+            # 分批发送，每条不超过 4000 字符（OneBot 限制）
+            for i in range(0, len(log_content), 4000):
+                await self.context.bot.send_private_message(event.get_sender_id(), log_content[i:i+4000])
+        else:
+            # 直接发送给用户
+            await self.context.bot.send_private_message(event.get_sender_id(), log_content)
 
-    # 最后再返回 plain_result 提示
-    yield event.plain_result("✅ 已手动执行课表推送任务（详细日志已发送私聊）")
+        # 最后再返回 plain_result 提示
+        yield event.plain_result("✅ 已手动执行课表推送任务（详细日志已发送私聊）")
 
 
     async def terminate(self):
