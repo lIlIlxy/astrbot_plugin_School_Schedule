@@ -32,6 +32,14 @@ class DailySchedulePlugin(Star):
             logger.error(f"[DailySchedule] ❌ 未找到课表脚本文件：{self.script_path}")
             return
 
+        # 尝试预缓存 context 中的 bot（某些 AstrBot 版本会在 context 上直接暴露 bot）
+        try:
+            self.bot = getattr(self.context, "bot", None)
+            if self.bot:
+                logger.debug("[DailySchedule] 已从 context 预获取到 bot 对象并缓存。")
+        except Exception:
+            self.bot = None
+
         # 初始化不获取 Bot，对象延迟到发送消息时再获取
         logger.info("[DailySchedule] ✅ 插件初始化完成，Bot 对象将在发送消息时获取。")
 
@@ -70,23 +78,29 @@ class DailySchedulePlugin(Star):
             logger.error(f"[DailySchedule] 课表脚本错误：{e}")
             return f"❌ 执行课表脚本出错：{e}"
 
-    async def send_to_groups(self, text: str):
-        """将课程信息发送到指定群（兼容多种 AstrBot 版本）"""
+    async def send_to_groups(self, text: str, bot=None):
+        """将课程信息发送到指定群（兼容多种 AstrBot 版本）
+        优先使用传入的 bot（例如来自 event.bot），否则再从 context 获取并缓存。
+        """
+        # 已由调用方提供 bot（例如 event.bot）则优先使用
+        if bot:
+            self.bot = bot
+
         # 延迟获取并缓存 Bot 对象（兼容 context.get_bot() 或 context.bot）
         if not self.bot:
-            bot = None
             ctx = self.context
+            bot_candidate = None
             if hasattr(ctx, "get_bot"):
                 try:
-                    bot = await ctx.get_bot()
+                    bot_candidate = await ctx.get_bot()
                 except Exception as e:
                     logger.debug(f"[DailySchedule] 尝试 await context.get_bot() 失败：{e}")
-            if not bot:
-                bot = getattr(ctx, "bot", None)
-            if not bot:
+            if not bot_candidate:
+                bot_candidate = getattr(ctx, "bot", None)
+            if not bot_candidate:
                 logger.error("[DailySchedule] ❌ 未获取到 Bot 对象，无法发送群消息")
                 return
-            self.bot = bot
+            self.bot = bot_candidate
 
         # 选择可用的发送方法并发送到每个群
         for group_id in self.TARGET_GROUPS:
@@ -114,7 +128,9 @@ class DailySchedulePlugin(Star):
     async def run_now(self, event: AstrMessageEvent):
         """手动立即执行课表任务"""
         result_text = await self.run_script()
-        await self.send_to_groups(result_text)
+        # 手动触发时优先使用 event.bot（在交互场景中通常可用）
+        event_bot = getattr(event, "bot", None)
+        await self.send_to_groups(result_text, bot=event_bot)
         yield event.plain_result(
             f"✅ 已手动执行课表解析，并发送到群 {self.TARGET_GROUPS}。\n\n{result_text}"
         )
