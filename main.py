@@ -71,17 +71,36 @@ class DailySchedulePlugin(Star):
             return f"❌ 执行课表脚本出错：{e}"
 
     async def send_to_groups(self, text: str):
-        """将课程信息发送到指定群"""
-        # 延迟获取 Bot 对象
+        """将课程信息发送到指定群（兼容多种 AstrBot 版本）"""
+        # 延迟获取并缓存 Bot 对象（兼容 context.get_bot() 或 context.bot）
         if not self.bot:
-            self.bot = getattr(self.context, "bot", None)
-            if not self.bot:
+            bot = None
+            ctx = self.context
+            if hasattr(ctx, "get_bot"):
+                try:
+                    bot = await ctx.get_bot()
+                except Exception as e:
+                    logger.debug(f"[DailySchedule] 尝试 await context.get_bot() 失败：{e}")
+            if not bot:
+                bot = getattr(ctx, "bot", None)
+            if not bot:
                 logger.error("[DailySchedule] ❌ 未获取到 Bot 对象，无法发送群消息")
                 return
+            self.bot = bot
 
+        # 选择可用的发送方法并发送到每个群
         for group_id in self.TARGET_GROUPS:
             try:
-                await self.bot.send_group_msg(group_id, text)
+                if hasattr(self.bot, "send_group_msg"):
+                    await self.bot.send_group_msg(group_id, text)
+                elif hasattr(self.bot, "send_group_message"):
+                    await self.bot.send_group_message(group_id, text)
+                elif hasattr(self.bot, "send_group"):
+                    await self.bot.send_group(group_id, text)
+                else:
+                    logger.error("[DailySchedule] ❌ Bot 对象不包含已知的群发方法（send_group_msg/send_group_message/send_group）")
+                    return
+                logger.info(f"[DailySchedule] ✅ 已发送到群 {group_id}")
             except Exception as e:
                 logger.error(f"[DailySchedule] ❌ 发送到群 {group_id} 失败：{e}")
 
