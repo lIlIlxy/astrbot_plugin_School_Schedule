@@ -32,14 +32,6 @@ class DailySchedulePlugin(Star):
             logger.error(f"[DailySchedule] ❌ 未找到课表脚本文件：{self.script_path}")
             return
 
-        # 尝试预缓存 context 中的 bot（某些 AstrBot 版本会在 context 上直接暴露 bot）
-        try:
-            self.bot = getattr(self.context, "bot", None)
-            if self.bot:
-                logger.debug("[DailySchedule] 已从 context 预获取到 bot 对象并缓存。")
-        except Exception:
-            self.bot = None
-
         # 初始化不获取 Bot，对象延迟到发送消息时再获取
         logger.info("[DailySchedule] ✅ 插件初始化完成，Bot 对象将在发送消息时获取。")
 
@@ -78,76 +70,39 @@ class DailySchedulePlugin(Star):
             logger.error(f"[DailySchedule] 课表脚本错误：{e}")
             return f"❌ 执行课表脚本出错：{e}"
 
-    async def send_to_groups(self, text: str, bot=None):
-        """将课程信息发送到指定群（兼容多种 AstrBot 版本）
-        优先使用传入的 bot（例如来自 event.bot），否则再从 context 获取并缓存。
-        """
-        # 已由调用方提供 bot（例如 event.bot）则优先使用
-        if bot:
-            self.bot = bot
-
+    async def send_to_groups(self, text: str):
+        """将课程信息发送到指定群（兼容多种 AstrBot 版本）"""
         # 延迟获取并缓存 Bot 对象（兼容 context.get_bot() 或 context.bot）
         if not self.bot:
+            bot = None
             ctx = self.context
-            bot_candidate = None
             if hasattr(ctx, "get_bot"):
                 try:
-                    bot_candidate = await ctx.get_bot()
+                    bot = await ctx.get_bot()
                 except Exception as e:
                     logger.debug(f"[DailySchedule] 尝试 await context.get_bot() 失败：{e}")
-            if not bot_candidate:
-                bot_candidate = getattr(ctx, "bot", None)
-            if not bot_candidate:
+            if not bot:
+                bot = getattr(ctx, "bot", None)
+            if not bot:
                 logger.error("[DailySchedule] ❌ 未获取到 Bot 对象，无法发送群消息")
                 return
-            self.bot = bot_candidate
+            self.bot = bot
 
         # 选择可用的发送方法并发送到每个群
         for group_id in self.TARGET_GROUPS:
-            sent = False
-            last_exc = None
-            for method_name in ("send_group_msg", "send_group_message", "send_group"):
-                if not hasattr(self.bot, method_name):
-                    continue
-                method = getattr(self.bot, method_name)
-                try:
-                    # 尝试关键字参数（多数 CQHttp 封装使用 group_id=..., message=...）
-                    ret = method(group_id=group_id, message=text)
-                    if asyncio.iscoroutine(ret):
-                        await ret
-                    sent = True
-                    break
-                except TypeError as e:
-                    last_exc = e
-                    try:
-                        # 回退尝试位置参数（部分接口可能接受）
-                        ret = method(group_id, text)
-                        if asyncio.iscoroutine(ret):
-                            await ret
-                        sent = True
-                        break
-                    except Exception as e2:
-                        last_exc = e2
-                        continue
-                except Exception as e:
-                    last_exc = e
-                    continue
-
-            if not sent:
-                # 最后尝试直接调用 call_action（若封装暴露此方法）
-                try:
-                    if hasattr(self.bot, "call_action"):
-                        ret = self.bot.call_action("send_group_msg", group_id=group_id, message=text)
-                        if asyncio.iscoroutine(ret):
-                            await ret
-                        sent = True
-                except Exception as e:
-                    last_exc = e
-
-            if sent:
+            try:
+                if hasattr(self.bot, "send_group_msg"):
+                    await self.bot.send_group_msg(group_id, text)
+                elif hasattr(self.bot, "send_group_message"):
+                    await self.bot.send_group_message(group_id, text)
+                elif hasattr(self.bot, "send_group"):
+                    await self.bot.send_group(group_id, text)
+                else:
+                    logger.error("[DailySchedule] ❌ Bot 对象不包含已知的群发方法（send_group_msg/send_group_message/send_group）")
+                    return
                 logger.info(f"[DailySchedule] ✅ 已发送到群 {group_id}")
-            else:
-                logger.error(f"[DailySchedule] ❌ 发送到群 {group_id} 失败：{last_exc}")
+            except Exception as e:
+                logger.error(f"[DailySchedule] ❌ 发送到群 {group_id} 失败：{e}")
 
     async def auto_task(self):
         """每天 7:30 自动执行任务"""
@@ -156,23 +111,10 @@ class DailySchedulePlugin(Star):
         await self.send_to_groups(result_text)
 
     @filter.command("run_schedule_now")
-    async def run_now(self, event: AstrMessageEvent, *args, **kwargs):
-        """手动立即执行课表任务（兼容不同调用约定）"""
+    async def run_now(self, event: AstrMessageEvent):
+        """手动立即执行课表任务"""
         result_text = await self.run_script()
-
-        # 优先从 kwargs/args 中获取可能传入的 bot（兼容不同 AstrBot 版本）
-        event_bot = kwargs.get("bot", None)
-        if not event_bot and args:
-            candidate = args[0]
-            # 若第一个额外参数看起来像 bot（包含常见发送方法），则使用
-            if candidate and any(hasattr(candidate, m) for m in ("send_group_msg", "send_group_message", "send_group", "call_action")):
-                event_bot = candidate
-
-        # 最后退回到 event.bot（如果存在）
-        if not event_bot:
-            event_bot = getattr(event, "bot", None)
-
-        await self.send_to_groups(result_text, bot=event_bot)
+        await self.send_to_groups(result_text)
         yield event.plain_result(
             f"✅ 已手动执行课表解析，并发送到群 {self.TARGET_GROUPS}。\n\n{result_text}"
         )
