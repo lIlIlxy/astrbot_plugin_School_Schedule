@@ -76,11 +76,15 @@ class DailySchedulePlugin(Star):
         if not self.bot:
             bot = None
             ctx = self.context
-            if hasattr(ctx, "get_bot"):
+            get_bot = getattr(ctx, "get_bot", None)
+            if callable(get_bot):
                 try:
-                    bot = await ctx.get_bot()
+                    bot_candidate = get_bot()
+                    if asyncio.iscoroutine(bot_candidate):
+                        bot_candidate = await bot_candidate
+                    bot = bot_candidate
                 except Exception as e:
-                    logger.debug(f"[DailySchedule] 尝试 await context.get_bot() 失败：{e}")
+                    logger.debug(f"[DailySchedule] 调用 context.get_bot() 失败：{e}")
             if not bot:
                 bot = getattr(ctx, "bot", None)
             if not bot:
