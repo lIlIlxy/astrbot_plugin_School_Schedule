@@ -156,11 +156,22 @@ class DailySchedulePlugin(Star):
         await self.send_to_groups(result_text)
 
     @filter.command("run_schedule_now")
-    async def run_now(self, event: AstrMessageEvent):
-        """手动立即执行课表任务"""
+    async def run_now(self, event: AstrMessageEvent, *args, **kwargs):
+        """手动立即执行课表任务（兼容不同调用约定）"""
         result_text = await self.run_script()
-        # 手动触发时优先使用 event.bot（在交互场景中通常可用）
-        event_bot = getattr(event, "bot", None)
+
+        # 优先从 kwargs/args 中获取可能传入的 bot（兼容不同 AstrBot 版本）
+        event_bot = kwargs.get("bot", None)
+        if not event_bot and args:
+            candidate = args[0]
+            # 若第一个额外参数看起来像 bot（包含常见发送方法），则使用
+            if candidate and any(hasattr(candidate, m) for m in ("send_group_msg", "send_group_message", "send_group", "call_action")):
+                event_bot = candidate
+
+        # 最后退回到 event.bot（如果存在）
+        if not event_bot:
+            event_bot = getattr(event, "bot", None)
+
         await self.send_to_groups(result_text, bot=event_bot)
         yield event.plain_result(
             f"✅ 已手动执行课表解析，并发送到群 {self.TARGET_GROUPS}。\n\n{result_text}"
