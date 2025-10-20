@@ -104,19 +104,50 @@ class DailySchedulePlugin(Star):
 
         # 选择可用的发送方法并发送到每个群
         for group_id in self.TARGET_GROUPS:
-            try:
-                if hasattr(self.bot, "send_group_msg"):
-                    await self.bot.send_group_msg(group_id, text)
-                elif hasattr(self.bot, "send_group_message"):
-                    await self.bot.send_group_message(group_id, text)
-                elif hasattr(self.bot, "send_group"):
-                    await self.bot.send_group(group_id, text)
-                else:
-                    logger.error("[DailySchedule] ❌ Bot 对象不包含已知的群发方法（send_group_msg/send_group_message/send_group）")
-                    return
+            sent = False
+            last_exc = None
+            for method_name in ("send_group_msg", "send_group_message", "send_group"):
+                if not hasattr(self.bot, method_name):
+                    continue
+                method = getattr(self.bot, method_name)
+                try:
+                    # 尝试关键字参数（多数 CQHttp 封装使用 group_id=..., message=...）
+                    ret = method(group_id=group_id, message=text)
+                    if asyncio.iscoroutine(ret):
+                        await ret
+                    sent = True
+                    break
+                except TypeError as e:
+                    last_exc = e
+                    try:
+                        # 回退尝试位置参数（部分接口可能接受）
+                        ret = method(group_id, text)
+                        if asyncio.iscoroutine(ret):
+                            await ret
+                        sent = True
+                        break
+                    except Exception as e2:
+                        last_exc = e2
+                        continue
+                except Exception as e:
+                    last_exc = e
+                    continue
+
+            if not sent:
+                # 最后尝试直接调用 call_action（若封装暴露此方法）
+                try:
+                    if hasattr(self.bot, "call_action"):
+                        ret = self.bot.call_action("send_group_msg", group_id=group_id, message=text)
+                        if asyncio.iscoroutine(ret):
+                            await ret
+                        sent = True
+                except Exception as e:
+                    last_exc = e
+
+            if sent:
                 logger.info(f"[DailySchedule] ✅ 已发送到群 {group_id}")
-            except Exception as e:
-                logger.error(f"[DailySchedule] ❌ 发送到群 {group_id} 失败：{e}")
+            else:
+                logger.error(f"[DailySchedule] ❌ 发送到群 {group_id} 失败：{last_exc}")
 
     async def auto_task(self):
         """每天 7:30 自动执行任务"""
